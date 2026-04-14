@@ -16,12 +16,12 @@ jobs:
       contents: write
       checks: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           java-version: '25'
           distribution: 'temurin'
@@ -35,23 +35,23 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Release prepare
+      - name: Prepare release
         run: ./mvnw -B release:prepare -DtagNameFormat=v@{project.version} -DscmCommentPrefix="[ci skip] "
 
-      - name: Release perform
-        run: ./mvnw -B release:perform -Darguments="-Dgpg.skip -Dmaven.deploy.skip=true"
-
-      - name: Extract version
-        id: version
+      - name: Save version number
         run: |
-          VERSION=$(grep '^scm.tag=' release.properties | cut -d= -f2 | sed 's/^v//')
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$(grep 'project.rel.io.trino\\:trino-libsql=' release.properties | cut -d'=' -f2)" >> $GITHUB_ENV
+
+      - name: Perform release
+        run: ./mvnw -B release:perform -Darguments="-Dgpg.skip -Dmaven.deploy.skip=true"
 
       - name: JReleaser
         uses: jreleaser/release-action@90ac653bb9c79d11179e65d81499f3f34527dcd5 # v2.5.0
         env:
-          JRELEASER_PROJECT_VERSION: ${{ steps.version.outputs.version }}
+          JRELEASER_PROJECT_VERSION: ${{ env.VERSION }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          setup-java: false
 
       - name: Surefire report
         uses: trinodb/github-actions/action-surefire-report@b63800bedfbc7ab1ff2e5fe7eaecf5ab82ce6a70
