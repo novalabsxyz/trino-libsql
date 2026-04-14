@@ -39,7 +39,7 @@ jobs:
         run: ./mvnw -B release:prepare -DtagNameFormat=v@{project.version} -DscmCommentPrefix="[ci skip] "
 
       - name: Release perform
-        run: ./mvnw -B release:perform -Dgpg.skip -Dmaven.deploy.skip=true
+        run: ./mvnw -B release:perform -Darguments="-Dgpg.skip -Dmaven.deploy.skip=true"
 
       - name: Extract version
         id: version
