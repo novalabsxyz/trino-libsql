@@ -1,19 +1,19 @@
 project:
   name: trino-libsql
   description: Trino connector for libSQL/Turso databases
-  license: Apache-2.0
-  links:
-    homepage: https://github.com/novalabsxyz/trino-libsql
+  license: Apache-2
+  java:
+    groupId: io.trino
+    version: 25
+  authors:
+    - Nova Labs
+  extraProperties:
+    inceptionYear: 2025
+
+files:
+  artifacts:
+    - path: "target/{{projectName}}-{{projectVersion}}.zip"
 
 release:
   github:
-    overwrite: true
-    changelog:
-      formatted: ALWAYS
-      preset: conventional-commits
-
-distributions:
-  trino-libsql:
-    type: JAVA_BINARY
-    artifacts:
-      - path: target/trino-libsql-{{projectVersion}}.zip
+    owner: novalabsxyz
