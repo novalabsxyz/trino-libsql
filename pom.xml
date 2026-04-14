@@ -15,6 +15,14 @@
 
     <name>trino-libsql</name>
     <description>Trino connector for libSQL/Turso databases</description>
+    <url>https://github.com/novalabsxyz/trino-libsql</url>
+
+    <scm>
+        <connection>scm:git:https://github.com/novalabsxyz/trino-libsql.git</connection>
+        <developerConnection>scm:git:https://github.com/novalabsxyz/trino-libsql.git</developerConnection>
+        <tag>HEAD</tag>
+        <url>https://github.com/novalabsxyz/trino-libsql</url>
+    </scm>
 
     <properties>
         <dep.trino.version>479</dep.trino.version>
@@ -24,9 +32,10 @@
         <air.javadoc.lint>-missing</air.javadoc.lint>
         <!-- Skip extended checks (spotbugs, pmd, jacoco, modernizer) — standard for out-of-tree connectors -->
         <air.check.skip-extended>true</air.check.skip-extended>
-        <!-- Re-enable checkstyle (disabled by skip-extended) -->
+        <!-- Re-enable checkstyle and license (disabled by skip-extended) -->
         <air.check.skip-checkstyle>false</air.check.skip-checkstyle>
         <air.check.fail-checkstyle>true</air.check.fail-checkstyle>
+        <air.check.skip-license>false</air.check.skip-license>
         <!-- Skip duplicate-finder — transitive test dep conflicts from trino-main (grpc, alluxio, jersey) -->
         <air.check.skip-duplicate-finder>true</air.check.skip-duplicate-finder>
     </properties>
@@ -37,6 +46,13 @@
                 <groupId>io.airlift</groupId>
                 <artifactId>bom</artifactId>
                 <version>${dep.airlift.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-bom</artifactId>
+                <version>1.57.0</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
