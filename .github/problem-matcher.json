@@ -1,14 +1,16 @@
-[
-  {
-    "owner": "maven",
-    "pattern": [
-      {
-        "regexp": "^\\[(?:ERROR|WARNING)\\]\\s+(.+?):\\[?(\\d+)(?:,(\\d+))?\\]?\\s+(?:error|warning)?:?\\s*(.+)$",
-        "file": 1,
-        "line": 2,
-        "column": 3,
-        "message": 4
-      }
-    ]
-  }
-]
+{
+  "problemMatcher": [
+    {
+      "owner": "maven",
+      "pattern": [
+        {
+          "regexp": "^\\[(?:ERROR|WARNING)\\]\\s+(.+?):\\[?(\\d+)(?:,(\\d+))?\\]?\\s+(?:error|warning)?:?\\s*(.+)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "message": 4
+        }
+      ]
+    }
+  ]
+}

@@ -26,7 +26,7 @@ public class TestingLibSqlServer
         implements Closeable
 {
     private static final int SQLD_PORT = 8080;
-    private static final String IMAGE = "ghcr.io/tursodatabase/libsql-server:latest";
+    private static final String IMAGE = "ghcr.io/tursodatabase/libsql-server@sha256:05328338f61d8c6f8f8b224457eb65f429360c62b7bedc13c999c140ec9cfca9";
 
     private final GenericContainer<?> container;
 

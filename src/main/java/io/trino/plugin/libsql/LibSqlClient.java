@@ -15,6 +15,7 @@ package io.trino.plugin.libsql;
 
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
+import io.airlift.log.Logger;
 import io.trino.plugin.base.mapping.IdentifierMapping;
 import io.trino.plugin.jdbc.BaseJdbcClient;
 import io.trino.plugin.jdbc.BaseJdbcConfig;
@@ -33,6 +34,7 @@ import io.trino.spi.connector.ColumnMetadata;
 import io.trino.spi.connector.ColumnPosition;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.connector.ConnectorTableMetadata;
+import io.trino.spi.connector.SchemaNotFoundException;
 import io.trino.spi.connector.SchemaTableName;
 import io.trino.spi.connector.TableNotFoundException;
 import io.trino.spi.type.Type;
@@ -56,10 +58,14 @@ import static io.trino.plugin.jdbc.StandardColumnMappings.varbinaryColumnMapping
 import static io.trino.plugin.jdbc.StandardColumnMappings.varcharColumnMapping;
 import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static io.trino.spi.type.VarcharType.createUnboundedVarcharType;
+import static java.lang.String.format;
 
 public class LibSqlClient
         extends BaseJdbcClient
 {
+    private static final Logger log = Logger.get(LibSqlClient.class);
+    private static final String SCHEMA_NAME = "default";
+
     @Inject
     public LibSqlClient(
             BaseJdbcConfig config,
@@ -76,12 +82,16 @@ public class LibSqlClient
     @Override
     public Collection<String> listSchemas(Connection connection)
     {
-        return ImmutableList.of("default");
+        return ImmutableList.of(SCHEMA_NAME);
     }
 
     @Override
     public List<SchemaTableName> getTableNames(ConnectorSession session, Optional<String> schema)
     {
+        if (schema.isPresent() && !schema.get().equals(SCHEMA_NAME)) {
+            throw new SchemaNotFoundException(schema.get());
+        }
+
         try (Connection connection = connectionFactory.openConnection(session);
                 Statement statement = connection.createStatement();
                 ResultSet resultSet = statement.executeQuery(
@@ -90,7 +100,7 @@ public class LibSqlClient
             while (resultSet.next()) {
                 String tableName = resultSet.getString("name");
                 if (!tableName.startsWith("sqlite_") && !tableName.startsWith("_litestream")) {
-                    tables.add(new SchemaTableName("default", tableName));
+                    tables.add(new SchemaTableName(SCHEMA_NAME, tableName));
                 }
             }
             return tables.build();
@@ -105,6 +115,10 @@ public class LibSqlClient
     @Override
     public Optional<JdbcTableHandle> getTableHandle(ConnectorSession session, SchemaTableName schemaTableName)
     {
+        if (!schemaTableName.getSchemaName().equals(SCHEMA_NAME)) {
+            return Optional.empty();
+        }
+
         String tableName = schemaTableName.getTableName();
         try (Connection connection = connectionFactory.openConnection(session);
                 Statement statement = connection.createStatement();
@@ -140,7 +154,10 @@ public class LibSqlClient
                         "SELECT cid, name, type, \"notnull\" FROM pragma_table_info('" +
                                 tableName.replace("'", "''") + "')")) {
             ImmutableList.Builder<JdbcColumnHandle> columns = ImmutableList.builder();
+            int totalColumns = 0;
+            int skippedColumns = 0;
             while (resultSet.next()) {
+                totalColumns++;
                 String columnName = resultSet.getString("name");
                 String declaredType = resultSet.getString("type");
                 boolean nullable = resultSet.getInt("notnull") == 0;
@@ -155,17 +172,31 @@ public class LibSqlClient
                         Optional.empty());
 
                 Optional<ColumnMapping> columnMapping = toColumnMapping(session, connection, typeHandle);
-                columnMapping.ifPresent(mapping -> columns.add(JdbcColumnHandle.builder()
-                        .setColumnName(columnName)
-                        .setJdbcTypeHandle(typeHandle)
-                        .setColumnType(mapping.getType())
-                        .setNullable(nullable)
-                        .build()));
+                if (columnMapping.isPresent()) {
+                    columns.add(JdbcColumnHandle.builder()
+                            .setColumnName(columnName)
+                            .setJdbcTypeHandle(typeHandle)
+                            .setColumnType(columnMapping.get().getType())
+                            .setNullable(nullable)
+                            .build());
+                }
+                else {
+                    skippedColumns++;
+                    log.warn("Skipping column '%s' in table '%s': unsupported type '%s'", columnName, tableName, declaredType);
+                }
             }
 
             List<JdbcColumnHandle> result = columns.build();
             if (result.isEmpty()) {
-                throw new TableNotFoundException(schemaTableName);
+                if (totalColumns == 0) {
+                    throw new TableNotFoundException(schemaTableName);
+                }
+                throw new TrinoException(NOT_SUPPORTED, format(
+                        "Table '%s' has %d columns but none have supported types. Unsupported columns were skipped.",
+                        schemaTableName, skippedColumns));
+            }
+            if (skippedColumns > 0) {
+                log.warn("Table '%s': %d of %d columns skipped due to unsupported types", tableName, skippedColumns, totalColumns);
             }
             return result;
         }
@@ -190,7 +221,10 @@ public class LibSqlClient
             case Types.DOUBLE -> Optional.of(doubleColumnMapping());
             case Types.VARCHAR -> Optional.of(varcharColumnMapping(createUnboundedVarcharType(), false));
             case Types.VARBINARY -> Optional.of(varbinaryColumnMapping());
-            default -> Optional.empty();
+            default -> {
+                log.debug("No column mapping for JDBC type %d (%s)", typeHandle.jdbcType(), typeHandle.jdbcTypeName());
+                yield Optional.empty();
+            }
         };
     }
 
@@ -299,7 +333,7 @@ public class LibSqlClient
 
     // -- Helpers --
 
-    private static int sqliteTypeToJdbcType(String declaredType)
+    static int sqliteTypeToJdbcType(String declaredType)
     {
         if (declaredType == null || declaredType.isEmpty()) {
             return Types.VARCHAR;
@@ -317,6 +351,9 @@ public class LibSqlClient
         if (upper.contains("BLOB")) {
             return Types.VARBINARY;
         }
+        // DATE, DATETIME, TIMESTAMP, NUMERIC, DECIMAL, TEXT, and all others
+        // map to VARCHAR per SQLite type affinity rules. SQLite stores these
+        // as text internally; Trino users can cast as needed.
         return Types.VARCHAR;
     }
 }
