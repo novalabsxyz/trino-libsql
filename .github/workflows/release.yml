@@ -4,9 +4,6 @@ on:
   push:
     branches: [main]
 
-permissions:
-  contents: write
-
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: false
@@ -15,6 +12,9 @@ jobs:
   release:
     if: "!contains(github.event.head_commit.message, '[ci skip]')"
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      checks: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,12 +31,9 @@ jobs:
         run: echo "::add-matcher::.github/problem-matcher.json"
 
       - name: Configure Git
-        env:
-          COMMITTER_NAME: ${{ github.event.head_commit.committer.name }}
-          COMMITTER_EMAIL: ${{ github.event.head_commit.committer.email }}
         run: |
-          git config user.name "$COMMITTER_NAME"
-          git config user.email "$COMMITTER_EMAIL"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
       - name: Release prepare
         run: ./mvnw -B release:prepare -DtagNameFormat=v@{project.version} -DscmCommentPrefix="[ci skip] "
@@ -51,7 +48,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: JReleaser
-        uses: jreleaser/release-action@v2
+        uses: jreleaser/release-action@90ac653bb9c79d11179e65d81499f3f34527dcd5 # v2.5.0
         env:
           JRELEASER_PROJECT_VERSION: ${{ steps.version.outputs.version }}
           JRELEASER_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
