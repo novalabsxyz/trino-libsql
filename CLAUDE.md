@@ -51,6 +51,14 @@ SQLite type affinity string → JDBC type → Trino type:
 
 Critical because the DBeaver driver buffers entire HTTP JSON responses in memory. Without `limitFunction()`, `SELECT ... LIMIT 10` still fetches all rows. TopN pushdown is intentionally disabled — SQLite doesn't support `NULLS FIRST`/`NULLS LAST` syntax.
 
+### URL Validation Quirk
+
+`LibSqlClientModule.isLoopback` strips surrounding `[]` from the host because `URI.getHost()` returns IPv6 addresses bracketed (`[::1]`, not `::1`). Don't compare hosts directly without normalizing.
+
+### Aggregation Pushdown
+
+`count(*)`, `count(col)`, `sum`, `min`, `max`, and `GROUP BY` are pushed down via `AggregateFunctionRewriter` with `ImplementCountAll`/`ImplementCount`/`ImplementMinMax`/`ImplementSum`. `avg`/`stddev`/`variance` are intentionally not pushed down — SQLite's `avg` returns a different type than Trino expects and `avg(bigint)` requires a dialect-specific CAST.
+
 ## Build Configuration Notes
 
 - Parent POM: `io.airlift:airbase:334` (matches Trino 479). Modeled after nineinchnick/trino-git.
@@ -58,10 +66,14 @@ Critical because the DBeaver driver buffers entire HTTP JSON responses in memory
 - `air.check.skip-extended=true` skips spotbugs/pmd/jacoco/modernizer (standard for out-of-tree connectors)
 - Checkstyle is re-enabled explicitly (`air.check.skip-checkstyle=false`)
 - Duplicate-finder skipped due to transitive test dep conflicts from trino-main
+- `trino-main` is declared twice in `pom.xml`: the main jar AND the `tests` classifier (test-jar). `BaseConnectorSmokeTest` lives in the test-jar; without it, `dependency:analyze-only` fails with "Used undeclared dependencies". Don't skip the analyzer — add the dep.
+- Airlift's `${ENV:VAR}` placeholder in `*.properties` files is required (no default-value syntax like `${ENV:VAR:-x}`). For optional env vars, mount a per-env catalog file at runtime.
 
 ## Testing
 
 Tests extend `BaseConnectorSmokeTest` (24 tests run, 12 write tests skipped via `hasBehavior`). Test data is seeded using TPC-H generators (`NationGenerator`, `RegionGenerator`) inserted via the JDBC driver into a Testcontainers-managed libsql-server instance.
+
+For end-to-end manual testing against a dockerized libsql + DBeaver, see [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md).
 
 ## Release
 
@@ -74,7 +86,8 @@ GPG signing is skipped (no Maven Central publishing).
 
 ## Security Constraints
 
-- `connection-url` must use HTTPS for non-localhost servers (enforced in `LibSqlClientModule`)
+- `connection-url` must use HTTPS for non-loopback hosts (enforced in `LibSqlClientModule.validateConnectionUrl`). Loopback (`localhost`/`127.0.0.1`/`[::1]`) is detected via `URI.getHost()`, not prefix matching, to prevent subdomain-spoof bypasses.
+- The `libsql.allow-insecure-http=true` config flag (see `LibSqlConfig`) lets operators opt in to plain `http://` for non-loopback hosts on trusted networks (e.g. Docker bridge between Trino and `sqld` containers). Off by default.
 - Schema name must be "default" — queries against other schemas are rejected
 - Columns with unsupported types are logged and skipped, not silently dropped
 - DDL error messages must match Trino's standard pattern: "This connector does not support ..."

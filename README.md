@@ -49,6 +49,8 @@ docker build --build-arg TRINO_VERSION=479 --build-arg VERSION=0.1-SNAPSHOT -t t
 docker run -p 8080:8080 -e LIBSQL_URL=https://your-db.turso.io -e LIBSQL_TOKEN=your-token trino-libsql
 ```
 
+For an end-to-end local setup with a dockerized libSQL server and DBeaver, see [docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md).
+
 ### Manual install
 
 Copy the plugin directory to your Trino installation:
@@ -78,11 +80,30 @@ connector.name=libsql
 connection-url=jdbc:dbeaver:libsql:http://localhost:8080
 ```
 
+### Local sqld over a Docker network (or other trusted network)
+
+When Trino and `sqld` run in separate containers on a shared Docker network, the connection URL hostname is the container name (e.g. `libsql`), which is not loopback. Plain `http://` is rejected by default; opt in explicitly:
+
+```properties
+connector.name=libsql
+connection-url=jdbc:dbeaver:libsql:http://libsql:8080
+libsql.allow-insecure-http=true
+```
+
+⚠️ Only enable `libsql.allow-insecure-http` for trusted networks (Docker bridge, VPN, bastion). Never enable it for traffic that crosses the public internet.
+
 All tables are exposed under a single schema called `default`. Query them as:
 
 ```sql
 SELECT * FROM libsql.default.my_table LIMIT 10;
 ```
+
+## Pushdowns
+
+The connector pushes the following down to libSQL:
+
+- **`LIMIT`** — critical because the underlying driver buffers the full HTTP response in memory.
+- **Aggregations** — `count(*)`, `count(col)`, `sum`, `min`, `max`, and `GROUP BY` are pushed down. `avg`, `stddev`, `variance` are intentionally not pushed down (SQLite type semantics differ from Trino's).
 
 ## Type Mapping
 
@@ -103,6 +124,7 @@ The connector maps SQLite type affinity strings to Trino types:
 - **No HTTP timeouts.** The underlying JDBC driver does not expose HTTP timeout configuration.
 - **Single schema.** All tables appear under the `default` schema. libSQL does not have a schema concept.
 - **No TopN pushdown.** SQLite does not support `NULLS FIRST` / `NULLS LAST` syntax, so ORDER BY pushdown is intentionally disabled.
+- **No `avg`/`stddev`/`variance` pushdown.** SQLite's `avg` returns a different type than Trino expects, and `avg(bigint)` requires a CAST that varies by dialect.
 
 ## Contributing
 
