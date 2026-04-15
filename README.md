@@ -14,24 +14,50 @@ This is an out-of-tree JDBC connector targeting **Trino 479**. It is currently *
 
 ```bash
 # Build the plugin (skip tests)
-mvn clean package -DskipTests
+./mvnw -B clean package -DskipTests
 
 # Run all tests (requires Docker)
-mvn test
+./mvnw -B test
 
 # Run a single test
-mvn test -Dtest=TestLibSqlConnectorSmokeTest#testSelect
+./mvnw -B test -Dtest=TestLibSqlConnectorSmokeTest#testSelect
 ```
 
 ## Deploy
 
-After building, copy the plugin directory to your Trino installation:
+### Adding to an existing Trino Docker image
+
+Download the plugin zip from [GitHub Releases](https://github.com/novalabsxyz/trino-libsql/releases) and add it to your Trino Dockerfile:
+
+```dockerfile
+# In your existing Trino Dockerfile
+ADD https://github.com/novalabsxyz/trino-libsql/releases/download/v0.1/trino-libsql-0.1.zip /tmp/trino-libsql.zip
+RUN mkdir -p /usr/lib/trino/plugin/libsql && \
+    unzip /tmp/trino-libsql.zip -d /usr/lib/trino/plugin/libsql && \
+    rm /tmp/trino-libsql.zip
+```
+
+Then add a catalog properties file (see [Configuration](#configuration) below) to your image or mount it at runtime.
+
+### Standalone test image
+
+A `Dockerfile` is included for standalone testing:
+
+```bash
+./mvnw -B clean package -DskipTests
+docker build --build-arg TRINO_VERSION=479 --build-arg VERSION=0.1-SNAPSHOT -t trino-libsql .
+docker run -p 8080:8080 -e LIBSQL_URL=https://your-db.turso.io -e LIBSQL_TOKEN=your-token trino-libsql
+```
+
+### Manual install
+
+Copy the plugin directory to your Trino installation:
 
 ```bash
 cp -r target/trino-libsql-0.1-SNAPSHOT/ <trino-install>/plugin/libsql/
 ```
 
-Restart the Trino server to load the connector.
+Restart Trino to load the connector.
 
 ## Configuration
 
