@@ -9,13 +9,15 @@ Read-only Trino JDBC connector for libSQL/Turso databases. Targets Trino 479, JD
 ## Build Commands
 
 ```bash
-mvn clean package -DskipTests   # Build plugin JAR
-mvn test                         # Run all tests (requires Docker for Testcontainers)
-mvn test -pl . -Dtest=TestLibSqlConnectorSmokeTest#testSelect  # Run single test
-mvn checkstyle:check             # Run checkstyle only
-mvn license:format               # Auto-add Apache 2.0 license headers
-mvn com.github.ekryd.sortpom:sortpom-maven-plugin:3.3.0:sort  # Sort pom.xml
+./mvnw -B clean package -DskipTests   # Build plugin JAR
+./mvnw -B test                         # Run all tests (requires Docker for Testcontainers)
+./mvnw -B test -Dtest=TestLibSqlConnectorSmokeTest#testSelect  # Run single test
+./mvnw checkstyle:check                # Run checkstyle only
+./mvnw license:format                  # Auto-add Apache 2.0 license headers
+mvn com.github.ekryd.sortpom:sortpom-maven-plugin:3.3.0:sort  # Sort pom.xml (run after editing pom.xml)
 ```
+
+Always run sortpom after editing pom.xml — the build fails if POM elements are out of order.
 
 JVM flag `--add-modules jdk.incubator.vector` is configured in surefire for tests (Trino 479 requires it).
 
@@ -51,7 +53,7 @@ Critical because the DBeaver driver buffers entire HTTP JSON responses in memory
 
 ## Build Configuration Notes
 
-- Parent POM: `io.airlift:airbase:334` (matches Trino 479)
+- Parent POM: `io.airlift:airbase:334` (matches Trino 479). Modeled after nineinchnick/trino-git.
 - Airlift BOM imported in `<dependencyManagement>` — manages all airlift dependency versions
 - `air.check.skip-extended=true` skips spotbugs/pmd/jacoco/modernizer (standard for out-of-tree connectors)
 - Checkstyle is re-enabled explicitly (`air.check.skip-checkstyle=false`)
@@ -60,6 +62,23 @@ Critical because the DBeaver driver buffers entire HTTP JSON responses in memory
 ## Testing
 
 Tests extend `BaseConnectorSmokeTest` (24 tests run, 12 write tests skipped via `hasBehavior`). Test data is seeded using TPC-H generators (`NationGenerator`, `RegionGenerator`) inserted via the JDBC driver into a Testcontainers-managed libsql-server instance.
+
+## Release
+
+Every merge to main auto-releases via Maven Release Plugin + JReleaser:
+1. Strips `-SNAPSHOT`, creates git tag `vX.Y`, builds plugin zip
+2. JReleaser publishes GitHub Release with zip attached
+3. Bumps to next `-SNAPSHOT` with `[ci skip]` commit to prevent recursion
+
+GPG signing is skipped (no Maven Central publishing).
+
+## Security Constraints
+
+- `connection-url` must use HTTPS for non-localhost servers (enforced in `LibSqlClientModule`)
+- Schema name must be "default" — queries against other schemas are rejected
+- Columns with unsupported types are logged and skipped, not silently dropped
+- DDL error messages must match Trino's standard pattern: "This connector does not support ..."
+- Test container image is pinned to a digest, not `:latest`
 
 ## Catalog Configuration (deployment)
 
