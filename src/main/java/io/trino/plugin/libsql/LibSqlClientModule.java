@@ -28,16 +28,23 @@ import io.trino.plugin.jdbc.JdbcClient;
 import io.trino.plugin.jdbc.credential.CredentialProvider;
 import io.trino.spi.TrinoException;
 
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.Set;
+
+import static io.airlift.configuration.ConfigBinder.configBinder;
 import static io.trino.spi.StandardErrorCode.CONFIGURATION_INVALID;
 
 public class LibSqlClientModule
         extends AbstractConfigurationAwareModule
 {
     private static final String URL_PREFIX = "jdbc:dbeaver:libsql:";
+    private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "::1");
 
     @Override
     public void setup(Binder binder)
     {
+        configBinder(binder).bindConfig(LibSqlConfig.class);
         binder.bind(JdbcClient.class).annotatedWith(ForBaseJdbc.class).to(LibSqlClient.class).in(Scopes.SINGLETON);
     }
 
@@ -46,32 +53,67 @@ public class LibSqlClientModule
     @ForBaseJdbc
     public static ConnectionFactory getConnectionFactory(
             BaseJdbcConfig config,
+            LibSqlConfig libSqlConfig,
             CredentialProvider credentialProvider,
             OpenTelemetry openTelemetry)
     {
         String url = config.getConnectionUrl();
-        if (!url.startsWith(URL_PREFIX)) {
-            throw new TrinoException(CONFIGURATION_INVALID,
-                    "connection-url must start with '%s', got: %s".formatted(URL_PREFIX, url));
-        }
-
-        String serverUrl = url.substring(URL_PREFIX.length());
-        if (serverUrl.startsWith("http://") && !isLocalhost(serverUrl)) {
-            throw new TrinoException(CONFIGURATION_INVALID,
-                    "connection-url uses insecure HTTP for a remote server. Use https:// or set connection-url to a localhost address for local development.");
-        }
+        validateConnectionUrl(url, libSqlConfig.isAllowInsecureHttp());
 
         return DriverConnectionFactory.builder(new LibSqlDriver(), url, credentialProvider)
                 .setOpenTelemetry(openTelemetry)
                 .build();
     }
 
-    private static boolean isLocalhost(String serverUrl)
+    static void validateConnectionUrl(String url, boolean allowInsecureHttp)
     {
-        // Allow http:// only for localhost/127.0.0.1/[::1] (local development)
-        String lower = serverUrl.toLowerCase();
-        return lower.startsWith("http://localhost") ||
-                lower.startsWith("http://127.0.0.1") ||
-                lower.startsWith("http://[::1]");
+        if (!url.startsWith(URL_PREFIX)) {
+            throw new TrinoException(CONFIGURATION_INVALID,
+                    "connection-url must start with '%s', got: %s".formatted(URL_PREFIX, url));
+        }
+
+        String serverUrl = url.substring(URL_PREFIX.length());
+        URI uri;
+        try {
+            uri = new URI(serverUrl);
+        }
+        catch (URISyntaxException e) {
+            throw new TrinoException(CONFIGURATION_INVALID,
+                    "connection-url is not a valid URI: " + serverUrl, e);
+        }
+
+        String scheme = uri.getScheme();
+        if (scheme == null || (!scheme.equalsIgnoreCase("http") && !scheme.equalsIgnoreCase("https"))) {
+            throw new TrinoException(CONFIGURATION_INVALID,
+                    "connection-url must use http:// or https://, got: " + serverUrl);
+        }
+
+        if (scheme.equalsIgnoreCase("https")) {
+            return;
+        }
+
+        String host = uri.getHost();
+        if (host == null) {
+            throw new TrinoException(CONFIGURATION_INVALID,
+                    "connection-url is missing a host: " + serverUrl);
+        }
+
+        if (allowInsecureHttp || isLoopback(host)) {
+            return;
+        }
+
+        throw new TrinoException(CONFIGURATION_INVALID,
+                ("connection-url uses insecure http:// for non-loopback host '%s'. " +
+                        "Use https://, connect to a loopback address, or set 'libsql.allow-insecure-http=true' " +
+                        "to opt in (e.g. trusted Docker network).").formatted(host));
+    }
+
+    private static boolean isLoopback(String host)
+    {
+        String normalized = host.toLowerCase();
+        if (normalized.startsWith("[") && normalized.endsWith("]")) {
+            normalized = normalized.substring(1, normalized.length() - 1);
+        }
+        return LOOPBACK_HOSTS.contains(normalized);
     }
 }
